@@ -1,2 +1,66 @@
-# matlab-grader-app
-A tool to support bulk assessment of matlab grader submissions, with a focus on offering feedback to students.
+# MATLAB Grader Review
+
+MATLAB Grader Review is a local MATLAB app for educators who need to make sense of large assessment exports and quickly review individual submissions. It combines MATLAB Grader results with a local student-group roster, so teaching staff can focus on the students and problems they need to discuss.
+
+The project is an early, educator-focused prototype. It is designed to run on your computer with files you choose; it does not send student records to a separate service.
+
+## What it does
+
+- Summarises submissions into one row per student, with compact problem scores and overall results.
+- Filters by one or more teaching groups using a separate local roster.
+- Shows assignment and problem averages, completion rates, and submission activity.
+- Previews the latest submitted MATLAB code and can open its MATLAB Grader solution page in your default browser.
+- Creates a one-page A4 student review PDF and provides a print-ready code view for in-person feedback.
+- Accepts MATLAB Grader Excel or CSV reports, including **All solutions** exports when attempt history is useful.
+
+The PDF includes the learner's submitted code, submission time, name, group, assignment, problem, and score. Correct/reference solutions are not included yet.
+
+## Get started
+
+1. Clone or download this repository.
+2. Open MATLAB and set the Current Folder to the project directory.
+3. Run:
+
+   ```matlab
+   GraderReviewApp
+   ```
+
+4. Choose **Load sample data** to explore the app with fabricated records, or import your own files.
+
+The sample names and accounts are invented, and the example solution links use the reserved `.invalid` domain.
+
+## Prepare your files
+
+### MATLAB Grader report
+
+Download an Excel or CSV report from MATLAB Grader. The app recognises learner name and email, test results, submission time, problem and assignment titles, solution ID, and—when present—the submitted solution code. The **All solutions** report is needed for attempt counts and the average number of submissions before a correct solution.
+
+### Student groups
+
+Import a separate Excel or CSV roster. It should contain an account identifier (`Account`, `ID`, or `SSO`) that matches the email address or its prefix in the Grader report. Add `Group` and optionally `College` columns to enable group filtering and display.
+
+### Problem URLs (optional)
+
+To open a submission in MATLAB Grader, import a local URL map with `ProblemTitle` and `ProblemURL` columns. The app uses the problem link and solution ID from the report to open the learner's solution. An optional `Assignment` or `SheetName` column supports repeated problem titles across assignments.
+
+## Review workflow
+
+Choose the assignment and one or more groups, then select a problem score to inspect the learner's latest submitted code. Use **Open in browser** to view the submission in MATLAB Grader, **Print code** for a quick print dialog, or **Generate Report** to save a PDF for a student meeting.
+
+The app distinguishes the mean score across problems a student submitted from the overall score across the assignment. Unsubmitted problems do not affect **Avg submitted %**; they count as zero in **Total %**. The active-time estimate sums gaps of up to one hour between submissions.
+
+## Privacy and local files
+
+Student reports, group rosters, solution code, and generated review PDFs can contain personal or sensitive information. Keep them local and review the files you select before sharing or committing anything. The `.gitignore` excludes the local `real-data/` folder and generated review PDFs. The repository contains only fabricated sample records.
+
+The current working copy also has a temporary developer-only real-data shortcut. It expects local files under `real-data/`; other educators should use the import buttons with their own exports. Do not add that folder to a public commit.
+
+## Requirements and limitations
+
+- MATLAB with App Designer UI components (`uifigure`, `uitable`, and related functions).
+- MATLAB Report Generator for **Generate Report** PDF output.
+- A local group roster and (optionally) a problem URL map; MATLAB Grader does not receive the local group information.
+- The prototype does not scrape authenticated MATLAB Grader pages or use a documented instructor API.
+- Reference solutions are not imported yet. MathWorks documents that the instructor MATLAB code-files ZIP contains reference solutions and learner code for each assessment item; a future version could import that ZIP and match reference files to assessment items. See [Download submissions to analyze learning outcomes](https://www.mathworks.com/help/matlabgrader/ug/download-submissions-to-analyze-learning-outcomes.html).
+
+This app is a review aid, not a replacement for checking results in MATLAB Grader or your institution's student-record systems.

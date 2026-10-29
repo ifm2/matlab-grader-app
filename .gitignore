@@ -1,0 +1,10 @@
+# Local course exports contain student names, identifiers, submissions, and links.
+/real-data/
+
+# Student review PDFs are generated from submitted work.
+/StudentReview_*.pdf
+/Save student review PDF.pdf
+
+# MATLAB editor and autosave files.
+*.asv
+*.m~
