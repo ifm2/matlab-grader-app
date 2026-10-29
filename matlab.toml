@@ -1,0 +1,7 @@
+name = "MATLAB Grader Review"
+
+[project]
+summary = "Review MATLAB Grader exports with local student-group filters."
+
+[project.shortcuts]
+"Launch Grader Review" = {path = "GraderReviewApp.m"}

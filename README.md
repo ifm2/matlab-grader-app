@@ -8,6 +8,7 @@ The project is an early, educator-focused prototype. It is designed to run on yo
 
 - Summarises submissions into one row per student, with compact problem scores and overall results.
 - Filters by one or more teaching groups using a separate local roster.
+- Displays Chinese student names in Pinyin, with an optional table column for the original characters.
 - Shows assignment and problem averages, completion rates, and submission activity.
 - Previews the latest submitted MATLAB code and can open its MATLAB Grader solution page in your default browser.
 - Creates a one-page A4 student review PDF and provides a print-ready code view for in-person feedback.
@@ -18,12 +19,14 @@ The PDF includes the learner's submitted code, submission time, name, group, ass
 ## Get started
 
 1. Clone or download this repository.
-2. Open MATLAB and set the Current Folder to the project directory.
+2. Open `matlab.toml` in MATLAB R2026b or later to open the project. In earlier MATLAB versions, set the Current Folder to the project directory.
 3. Run:
 
    ```matlab
    GraderReviewApp
    ```
+
+The MATLAB project includes a **Launch Grader Review** shortcut. The Project tab also provides dependency analysis and Git source control for this repository. MATLAB UI components and MATLAB Report Generator are MATLAB product requirements rather than installable package dependencies.
 
 4. Choose **Load sample data** to explore the app with fabricated records, or import your own files.
 
@@ -60,6 +63,10 @@ The current working copy also has a temporary developer-only real-data shortcut.
 - MATLAB with App Designer UI components (`uifigure`, `uitable`, and related functions).
 - MATLAB Report Generator for **Generate Report** PDF output.
 - A local group roster and (optionally) a problem URL map; MATLAB Grader does not receive the local group information.
+- Optional Python `pypinyin` package for offline display of Chinese student names in Pinyin. The source name is retained internally for matching.
+
+To enable Pinyin display, install `requirements-pinyin.txt` into the same Python environment MATLAB uses. In MATLAB, check the interpreter with `pyenv`, then run `python -m pip install --user -r requirements-pinyin.txt` from that environment. Names are converted locally and are not sent to an external API. If the package is unavailable, the app keeps the original name and shows a status message.
+
 - The prototype does not scrape authenticated MATLAB Grader pages or use a documented instructor API.
 - Reference solutions are not imported yet. MathWorks documents that the instructor MATLAB code-files ZIP contains reference solutions and learner code for each assessment item; a future version could import that ZIP and match reference files to assessment items. See [Download submissions to analyze learning outcomes](https://www.mathworks.com/help/matlabgrader/ug/download-submissions-to-analyze-learning-outcomes.html).
 

@@ -40,7 +40,7 @@ function app = GraderReviewApp()
 
     controls = uigridlayout(root,[2 7]);
     controls.Layout.Row = 2;
-    controls.ColumnWidth = {155,155,145,135,145,'1x',130};
+    controls.ColumnWidth = {155,155,145,135,145,'1x',180};
     controls.RowHeight = {36,36};
     controls.Padding = [0 0 0 0];
     controls.ColumnSpacing = 10;
@@ -59,8 +59,12 @@ function app = GraderReviewApp()
     urlButton.Layout.Row = 1; urlButton.Layout.Column = 6;
     exportButton = uibutton(controls,'Text','Export view…','ButtonPushedFcn',@(~,~)exportView());
     exportButton.Layout.Row = 1; exportButton.Layout.Column = 7;
+    showChineseNames = uicheckbox(controls,'Text','Show Chinese characters','Value',false, ...
+        'ValueChangedFcn',@(~,~)refreshView());
+    showChineseNames.Layout.Row = 2; showChineseNames.Layout.Column = 7;
+    showChineseNames.Tooltip = 'Add the original student name to the table; First and Last remain in Pinyin.';
     statusLabel = uilabel(controls,'Text','Load sample data or choose a Grader report and group spreadsheet.','FontColor',[0.25 0.32 0.40]);
-    statusLabel.Layout.Row = 2; statusLabel.Layout.Column = [1 7];
+    statusLabel.Layout.Row = 2; statusLabel.Layout.Column = [1 6];
 
     content = uigridlayout(root,[1 2]);
     content.Layout.Row = 3;
@@ -363,7 +367,11 @@ function app = GraderReviewApp()
             currentSummary=R;
             displayTable=R;
             if ismember('StudentName',displayTable.Properties.VariableNames)
-                displayTable.StudentName=[];
+                if showChineseNames.Value
+                    displayTable.Properties.VariableNames{'StudentName'}='OriginalName';
+                else
+                    displayTable.StudentName=[];
+                end
             end
             if ismember('Assignment',displayTable.Properties.VariableNames) && ...
                     numel(assignmentDrop.Items)==2 && ~strcmp(assignmentDrop.Value,'All assignments')
@@ -378,6 +386,9 @@ function app = GraderReviewApp()
             updateResultsTitle();
             updateStats(report);
             statusLabel.Text = sprintf('%d students shown. Failed solutions are based on Tests Passed < Total Tests.',height(R));
+            if reportHasChineseNames(report) && ~pinyinLibraryAvailable()
+                statusLabel.Text = statusLabel.Text + " Chinese names are unchanged: install pypinyin in MATLAB's Python environment to display Pinyin.";
+            end
         catch err
             if ~isempty(err.stack)
                 statusLabel.Text = "Could not prepare report (line " + err.stack(1).line + "): " + string(err.message);
@@ -525,6 +536,7 @@ function app = GraderReviewApp()
                     case 'ScoreOfSubmitted', headers{k}='Avg submitted %';
                     case 'FailedCount', headers{k}='Fails';
                     case 'ActiveTime', headers{k}='Active time';
+                    case 'OriginalName', headers{k}='Original name';
                 end
                 continue
             end
@@ -555,6 +567,7 @@ function app = GraderReviewApp()
                     case 'ActiveTime', widths{k}=70;
                     case 'FailedCount', widths{k}=46;
                     case 'Assignment', widths{k}=115;
+                    case 'OriginalName', widths{k}=145;
                     otherwise, widths{k}=75;
                 end
             end
@@ -600,7 +613,7 @@ function app = GraderReviewApp()
             problemTitle=problemFromColumn(report,selectedAssignment,string(current.Properties.VariableNames{col}));
             showSelectedSolution(report,selectedStudent,selectedAssignment,problemTitle);
         else
-            selectedLabel.Text=selectedStudent;
+            selectedLabel.Text=chineseToPinyin(selectedStudent);
             solutionHeading.Text='Select a problem score to preview its submitted code.';
             solutionText.Value={'No solution selected.'};
             selectedProblemUrl="";
@@ -612,7 +625,7 @@ function app = GraderReviewApp()
 
     function showSelectedSolution(T,student,assignment,problemTitle)
         [rowIndex,attemptCount,solutionCode,score,submittedAt]=findSelectedSolution(T,student,assignment,problemTitle);
-        selectedLabel.Text=student+" — "+problemTitle;
+        selectedLabel.Text=chineseToPinyin(student)+" — "+problemTitle;
         if isempty(rowIndex)
             solutionHeading.Text='No submitted solution found for this problem.';
             solutionText.Value={''};
@@ -662,7 +675,7 @@ function app = GraderReviewApp()
     end
 
     function metadata=selectedStudentMetadata()
-        metadata=struct('Student',char(selectedStudent),'Group','','Assignment',char(selectedAssignment), ...
+        metadata=struct('Student',char(chineseToPinyin(selectedStudent)),'Group','','Assignment',char(selectedAssignment), ...
             'Problem',char(selectedProblemTitle),'Score',selectedScore,'Submitted',char(selectedSubmittedAt), ...
             'Attempts',selectedAttemptCount);
         if ~isempty(currentSummary) && ismember('StudentName',currentSummary.Properties.VariableNames)
@@ -682,7 +695,7 @@ function app = GraderReviewApp()
             uialert(fig,'This report does not contain solution code for the selected submission.','No code to include');
             return
         end
-        safeName=regexprep(char(selectedStudent+"_"+selectedProblemTitle),'[^A-Za-z0-9_-]','_');
+        safeName=regexprep(char(chineseToPinyin(selectedStudent)+"_"+selectedProblemTitle),'[^A-Za-z0-9_-]','_');
         [file,path]=uiputfile('*.pdf',['StudentReview_' safeName '.pdf'],'Save student review PDF');
         if isequal(file,0), return; end
         try
@@ -815,7 +828,8 @@ function R = makeStudentSummary(T,G,~,hasAttemptHistory)
         end
         allStudentTimes=submitted(allIdx);
         activeTime=formatActiveTime(allStudentTimes);
-        row = struct('Group',group,'StudentName',nm,'First',firstToken(nm),'Last',lastToken(nm), ...
+        [~,first,last]=chineseToPinyin(nm);
+        row = struct('Group',group,'StudentName',nm,'First',first,'Last',last, ...
             'College',college,'TotalScore',overallScore,'PercentSubmitted',round(100*submittedCount/numProblems), ...
             'ScoreOfSubmitted',score,'FirstQ',firstTime,'LastQ',lastTime,'ActiveTime',activeTime, ...
             'FailedCount',sum(failed(idx)));
@@ -1075,6 +1089,7 @@ function description = studentSummaryText(T,student,assignment)
     studentRows=find(mask);
     name=string(student);
     if ~isempty(studentRows) && nameCol~="", name=string(T.(nameCol)(studentRows(1))); end
+    name=chineseToPinyin(name);
     attempted=0;
     if problemCol~="", attempted=numel(unique(string(T.(problemCol)(studentRows)),'stable')); end
     description=sprintf('%s | %d problem(s) with submitted solution rows in this import',name,attempted);
@@ -1240,6 +1255,25 @@ function name=firstName(vars,candidates)
     end
 end
 
+function tf=reportHasChineseNames(T)
+    vars=string(T.Properties.VariableNames);
+    nameCol=firstName(vars,["Student Name","StudentName","Learner Name"]);
+    tf=false;
+    if nameCol=="", return; end
+    names=string(T.(nameCol));
+    for k=1:numel(names)
+        [~,~,~,~,hasHan]=chineseToPinyin(names(k));
+        if hasHan
+            tf=true;
+            return
+        end
+    end
+end
+
+function tf=pinyinLibraryAvailable()
+    [~,~,~,tf]=chineseToPinyin("张三");
+end
+
 function key=normalizeKey(value)
     key=lower(regexprep(strtrim(string(value)),'[^a-zA-Z0-9]',''));
 end
@@ -1255,10 +1289,3 @@ function t=parseTimes(x)
     t.TimeZone='';
 end
 
-function x=firstToken(s)
-    p=split(strtrim(s)); x=p(1);
-end
-
-function x=lastToken(s)
-    p=split(strtrim(s)); x=p(end);
-end
