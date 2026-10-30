@@ -13,8 +13,17 @@ function app = GraderReviewApp()
 
     fig = uifigure('Name','MATLAB Grader Review','Position',[100 100 1440 820]);
     fig.Color = [0.96 0.97 0.98];
+    fileMenu=uimenu(fig,'Text','File');
+    uimenu(fileMenu,'Text','Import Grader report…','MenuSelectedFcn',@(~,~)chooseReport());
+    uimenu(fileMenu,'Text','Import student groups…','MenuSelectedFcn',@(~,~)chooseGroups());
+    uimenu(fileMenu,'Text','Import Problem URLs…','MenuSelectedFcn',@(~,~)importProblemLinks());
+    uimenu(fileMenu,'Text','Export view…','MenuSelectedFcn',@(~,~)exportView());
+    filterMenu=uimenu(fig,'Text','Filter');
+    groupMenu=uimenu(filterMenu,'Text','Groups');
+    menuGroupNames=strings(0,1);
+    groupMenuItems=gobjects(0,1);
     root = uigridlayout(fig,[4 1]);
-    root.RowHeight = {72, 112, '1x', 28};
+    root.RowHeight = {72, 56, '1x', 28};
     root.Padding = [18 14 18 12];
     root.RowSpacing = 10;
 
@@ -38,33 +47,22 @@ function app = GraderReviewApp()
     loadReal = uibutton(headerButtons,'Text','Load real data (temporary)','ButtonPushedFcn',@(~,~)loadRealData());
     loadReal.Layout.Column = 2;
 
-    controls = uigridlayout(root,[2 7]);
+    controls = uigridlayout(root,[1 3]);
     controls.Layout.Row = 2;
-    controls.ColumnWidth = {155,155,145,135,145,'1x',180};
-    controls.RowHeight = {36,36};
+    controls.ColumnWidth = {250,'1x',205};
+    controls.RowHeight = {48};
     controls.Padding = [0 0 0 0];
     controls.ColumnSpacing = 10;
-    reportButton = uibutton(controls,'Text','Import Grader report…','ButtonPushedFcn',@(~,~)chooseReport());
-    reportButton.Layout.Row = 1; reportButton.Layout.Column = 1;
-    groupButton = uibutton(controls,'Text','Import student groups…','ButtonPushedFcn',@(~,~)chooseGroups());
-    groupButton.Layout.Row = 1; groupButton.Layout.Column = 2;
-    assignmentDrop = uidropdown(controls,'Items',{'All assignments'},'Value','All assignments','ValueChangedFcn',@(~,~)refreshView());
-    assignmentDrop.Layout.Row = 1; assignmentDrop.Layout.Column = 3;
+    currentAssignment="All assignments";
     selectedGroups = "All groups";
-    groupSelectButton = uibutton(controls,'Text','Groups: All groups…','ButtonPushedFcn',@(~,~)chooseGroupsFilter());
-    groupSelectButton.Layout.Row = 1; groupSelectButton.Layout.Column = 4;
     failedOnly = uicheckbox(controls,'Text','Show students with failed solutions only','Value',false,'ValueChangedFcn',@(~,~)refreshView());
-    failedOnly.Layout.Row = 1; failedOnly.Layout.Column = 5;
-    urlButton = uibutton(controls,'Text','Problem URLs…','ButtonPushedFcn',@(~,~)importProblemLinks());
-    urlButton.Layout.Row = 1; urlButton.Layout.Column = 6;
-    exportButton = uibutton(controls,'Text','Export view…','ButtonPushedFcn',@(~,~)exportView());
-    exportButton.Layout.Row = 1; exportButton.Layout.Column = 7;
+    failedOnly.Layout.Column = 1;
     showChineseNames = uicheckbox(controls,'Text','Show Chinese characters','Value',false, ...
         'ValueChangedFcn',@(~,~)toggleOriginalNameColumn());
-    showChineseNames.Layout.Row = 2; showChineseNames.Layout.Column = 7;
+    showChineseNames.Layout.Column = 3;
     showChineseNames.Tooltip = 'Add the original student name to the table; First and Last remain in Pinyin.';
     statusLabel = uilabel(controls,'Text','Load sample data or choose a Grader report and group spreadsheet.','FontColor',[0.25 0.32 0.40]);
-    statusLabel.Layout.Row = 2; statusLabel.Layout.Column = [1 6];
+    statusLabel.Layout.Column = 2;
 
     content = uigridlayout(root,[1 2]);
     content.Layout.Row = 3;
@@ -96,8 +94,8 @@ function app = GraderReviewApp()
 
     detailPanel = uipanel(content,'Title','Student and solution details');
     detailPanel.Layout.Column = 2;
-    detailGrid = uigridlayout(detailPanel,[5 1]);
-    detailGrid.RowHeight = {34,42,26,'1x',44};
+    detailGrid = uigridlayout(detailPanel,[6 1]);
+    detailGrid.RowHeight = {34,42,26,32,'1x',44};
     detailGrid.Padding = [12 10 12 10];
     selectedLabel = uilabel(detailGrid,'Text','Select a student row or problem score.','FontWeight','bold','WordWrap','on');
     selectedLabel.Layout.Row = 1;
@@ -105,10 +103,29 @@ function app = GraderReviewApp()
     studentInfoLabel.Layout.Row = 2;
     solutionHeading = uilabel(detailGrid,'Text','Select a problem score to preview its submitted code.','FontWeight','bold');
     solutionHeading.Layout.Row = 3;
-    solutionText = uitextarea(detailGrid,'Editable','off','Value',{'No solution selected.'},'FontName','Monospaced');
-    solutionText.Layout.Row = 4;
+    submissionNav = uigridlayout(detailGrid,[1 3]);
+    submissionNav.Layout.Row=4;
+    submissionNav.ColumnWidth={95,'1x',95};
+    submissionNav.ColumnSpacing=6;
+    submissionNav.Padding=[0 0 0 0];
+    previousSubmissionButton=uibutton(submissionNav,'Text','← Previous', ...
+        'Enable','off','Visible','off','ButtonPushedFcn',@(~,~)stepSubmission(-1));
+    previousSubmissionButton.Layout.Column=1;
+    submissionPositionLabel=uilabel(submissionNav,'Text','', ...
+        'HorizontalAlignment','center','FontWeight','bold');
+    submissionPositionLabel.Layout.Column=2;
+    nextSubmissionButton=uibutton(submissionNav,'Text','Next →', ...
+        'Enable','off','Visible','off','ButtonPushedFcn',@(~,~)stepSubmission(1));
+    nextSubmissionButton.Layout.Column=3;
+    solutionFrame=uipanel(detailGrid,'BorderType','line','BorderWidth',2, ...
+        'BorderColor',[0.72 0.76 0.80]);
+    solutionFrame.Layout.Row=5;
+    solutionGrid=uigridlayout(solutionFrame,[1 1]);
+    solutionGrid.Padding=[2 2 2 2];
+    solutionText = uitextarea(solutionGrid,'Editable','off','Value',{'No solution selected.'},'FontName','Monospaced');
+    solutionText.Layout.Row = 1;
     actionGrid=uigridlayout(detailGrid,[1 3]);
-    actionGrid.Layout.Row=5;
+    actionGrid.Layout.Row=6;
     actionGrid.ColumnWidth={'1.2x','1x','1.2x'};
     actionGrid.ColumnSpacing=6;
     actionGrid.Padding=[0 0 0 0];
@@ -125,6 +142,8 @@ function app = GraderReviewApp()
     selectedProblemTitle="";
     selectedAssignment="";
     selectedAttemptCount=0;
+    selectedAttemptRows=[];
+    selectedAttemptIndex=0;
     failsCenterStyle=[];
     failsStyleApplied=false;
 
@@ -268,20 +287,17 @@ function app = GraderReviewApp()
         try
             report = readtable(path,'VariableNamingRule','preserve');
             reportHasAttemptHistory=hasRepeatedSubmissions(report);
-            assignmentDrop.Items = {'All assignments'};
             if ismember("Assignment Title",string(report.Properties.VariableNames))
                 assignments=unique(string(report.('Assignment Title')),'stable');
-                assignmentDrop.Items = [{'All assignments'},cellstr(assignments)'];
             elseif ismember("AssignmentTitle",string(report.Properties.VariableNames))
                 assignments=unique(string(report.AssignmentTitle),'stable');
-                assignmentDrop.Items = [{'All assignments'},cellstr(assignments)'];
             else
                 assignments=strings(0,1);
             end
             if numel(assignments)==1
-                assignmentDrop.Value=char(assignments(1));
+                currentAssignment=assignments(1);
             else
-                assignmentDrop.Value = 'All assignments';
+                currentAssignment="All assignments";
             end
             statusLabel.Text = "Loaded report: " + string(path) + ". Import a problem URL map if you need working solution links.";
             refreshView();
@@ -355,8 +371,8 @@ function app = GraderReviewApp()
         try
             updateGroupOptions();
             R = makeStudentSummary(report,groups,problemLinks,reportHasAttemptHistory);
-            if ismember("Assignment",string(R.Properties.VariableNames)) && ~strcmp(assignmentDrop.Value,'All assignments')
-                R = R(R.Assignment == string(assignmentDrop.Value),:);
+            if ismember("Assignment",string(R.Properties.VariableNames)) && currentAssignment~="All assignments"
+                R = R(R.Assignment == currentAssignment,:);
             end
             if ~any(selectedGroups=="All groups")
                 R = R(ismember(string(R.Group),selectedGroups),:);
@@ -375,11 +391,11 @@ function app = GraderReviewApp()
                 end
             end
             if ismember('Assignment',displayTable.Properties.VariableNames) && ...
-                    numel(assignmentDrop.Items)==2 && ~strcmp(assignmentDrop.Value,'All assignments')
+                    currentAssignment~="All assignments"
                 displayTable.Assignment=[];
             end
             resultTable.Data = displayTable;
-            [shortHeaders,headerHelp]=makeProblemHeaders(displayTable.Properties.VariableNames,assignmentDrop.Value);
+            [shortHeaders,headerHelp]=makeProblemHeaders(displayTable.Properties.VariableNames,currentAssignment);
             resultTable.ColumnName = shortHeaders;
             resultTable.Tooltip=headerHelp;
             resultTable.ColumnWidth=makeColumnWidths(displayTable.Properties.VariableNames);
@@ -438,7 +454,7 @@ function app = GraderReviewApp()
         end
 
         resultTable.Data=data;
-        [shortHeaders,headerHelp]=makeProblemHeaders(data.Properties.VariableNames,assignmentDrop.Value);
+        [shortHeaders,headerHelp]=makeProblemHeaders(data.Properties.VariableNames,currentAssignment);
         resultTable.ColumnName=shortHeaders;
         resultTable.Tooltip=headerHelp;
         resultTable.ColumnWidth=makeColumnWidths(data.Properties.VariableNames);
@@ -507,17 +523,17 @@ function app = GraderReviewApp()
     end
 
     function updateResultsTitle()
-        if strcmp(assignmentDrop.Value,'All assignments')
+        if currentAssignment=="All assignments"
             selectedAssignment="All assignments";
         else
-            selectedAssignment=string(assignmentDrop.Value);
+            selectedAssignment=currentAssignment;
         end
         resultsPanel.Title=sprintf('Student Results for Group %s for Assignment %s', ...
             strjoin(selectedGroups,', '),selectedAssignment);
     end
 
     function updateStats(T)
-        [allRows,problemNames,problemMean,overallMean,completionByGroup] = summarizeStats(T,groups,assignmentDrop.Value,selectedGroups);
+        [allRows,problemNames,problemMean,overallMean,completionByGroup] = summarizeStats(T,groups,currentAssignment,selectedGroups);
         if isempty(allRows)
             overallStat.Text = 'Average overall | —';
             completionStat.Text = "Completion | —"+newline+"Avg submissions to correct | —";
@@ -533,7 +549,7 @@ function app = GraderReviewApp()
         else
             completionStat.Text = sprintf('Completion | %d/%d (%.1f%%)',allRows.Completed,allRows.Enrolled,allRows.CompletionRate);
         end
-        avgAttempts=averageSubmissionsToCorrect(T,groups,assignmentDrop.Value,selectedGroups);
+        avgAttempts=averageSubmissionsToCorrect(T,groups,currentAssignment,selectedGroups);
         if isnan(avgAttempts)
             completionStat.Text=string(completionStat.Text)+newline+"Avg submissions to correct | —";
             completionStat.Tooltip='Attempt averages require an All solutions report with repeated learner/problem rows.';
@@ -570,38 +586,38 @@ function app = GraderReviewApp()
         if isempty(items) || any(selectedGroups=="All groups") || ~all(ismember(selectedGroups,items))
             selectedGroups="All groups";
         end
-        if any(selectedGroups=="All groups")
-            groupSelectButton.Text='Groups: All groups…';
-        else
-            groupSelectButton.Text='Groups: '+strjoin(selectedGroups,', ')+'…';
+        if ~isequal(items,menuGroupNames)
+            delete(groupMenu.Children);
+            menuGroupNames=items;
+            groupMenuItems=gobjects(numel(items)+1,1);
+            groupMenuItems(1)=uimenu(groupMenu,'Text','All groups', ...
+                'MenuSelectedFcn',@(~,~)setGroupFilter("All groups"));
+            for k=1:numel(items)
+                groupName=items(k);
+                groupMenuItems(k+1)=uimenu(groupMenu,'Text',char(groupName), ...
+                    'MenuSelectedFcn',@(~,~)toggleGroupSelection(groupName));
+            end
+        end
+        for k=1:numel(groupMenuItems)
+            if k==1
+                isChecked=any(selectedGroups=="All groups");
+            else
+                isChecked=ismember(menuGroupNames(k-1),selectedGroups);
+            end
+            groupMenuItems(k).Checked=onOff(isChecked);
         end
     end
 
-    function chooseGroupsFilter()
-        items=strings(0,1);
-        if ~isempty(groups) && height(groups)>0
-            gv=string(groups.Properties.VariableNames);
-            groupCol=firstName(gv,["GROUP","Group"]);
-            if groupCol~=""
-                items=unique(strtrim(string(groups.(groupCol))),'stable');
-                items=items(items~="" & items~="0");
-            end
-        end
-        if isempty(items)
-            uialert(fig,'Import a student-group spreadsheet before filtering by group.','No groups available');
-            return
-        end
-        options=["All groups";items(:)];
-        if any(selectedGroups=="All groups"), initial=[]; else, initial=find(ismember(options,selectedGroups)); end
-        [selection,ok]=listdlg('ListString',cellstr(options),'SelectionMode','multiple', ...
-            'InitialValue',initial,'PromptString','Select groups (use Ctrl-click for multiple):', ...
-            'Name','Filter by student groups','ListSize',[260 300]);
-        if ~ok, return; end
-        if isempty(selection) || any(selection==1)
-            setGroupFilter("All groups");
+    function toggleGroupSelection(groupName)
+        if any(selectedGroups=="All groups")
+            requested=groupName;
+        elseif any(selectedGroups==groupName)
+            requested=selectedGroups(selectedGroups~=groupName);
+            if isempty(requested), requested="All groups"; end
         else
-            setGroupFilter(options(selection));
+            requested=[selectedGroups;groupName];
         end
+        setGroupFilter(requested);
     end
 
     function setGroupFilter(requestedGroups)
@@ -687,6 +703,8 @@ function app = GraderReviewApp()
         selectedProblemTitle="";
         selectedAssignment="";
         selectedAttemptCount=0;
+        selectedAttemptRows=[];
+        selectedAttemptIndex=0;
         summaryRow=[];
         if all(ismember({'First','Last','Group','College'},current.Properties.VariableNames)) && ...
                 ~isempty(currentSummary) && row<=height(currentSummary)
@@ -716,6 +734,12 @@ function app = GraderReviewApp()
             selectedLabel.Text=chineseToPinyin(selectedStudent);
             solutionHeading.Text='Select a problem score to preview its submitted code.';
             solutionText.Value={'No solution selected.'};
+            submissionPositionLabel.Text='';
+            previousSubmissionButton.Visible='off';
+            previousSubmissionButton.Enable='off';
+            nextSubmissionButton.Visible='off';
+            nextSubmissionButton.Enable='off';
+            solutionFrame.BorderColor=[0.72 0.76 0.80];
             selectedProblemUrl="";
             openButton.Enable='off';
             printCodeButton.Enable='off';
@@ -724,30 +748,82 @@ function app = GraderReviewApp()
     end
 
     function showSelectedSolution(T,student,assignment,problemTitle)
-        [rowIndex,attemptCount,solutionCode,score,submittedAt]=findSelectedSolution(T,student,assignment,problemTitle);
+        [attemptRows,attemptCount]=findSelectedAttempts(T,student,assignment,problemTitle);
         selectedLabel.Text=chineseToPinyin(student)+" — "+problemTitle;
-        if isempty(rowIndex)
+        if isempty(attemptRows)
             solutionHeading.Text='No submitted solution found for this problem.';
             solutionText.Value={''};
+            submissionPositionLabel.Text='';
+            previousSubmissionButton.Visible='off';
+            previousSubmissionButton.Enable='off';
+            nextSubmissionButton.Visible='off';
+            nextSubmissionButton.Enable='off';
+            solutionFrame.BorderColor=[0.72 0.76 0.80];
             selectedProblemUrl="";
             openButton.Enable='off';
             printCodeButton.Enable='off';
             generateReportButton.Enable='off';
             return
         end
+        selectedAttemptRows=attemptRows;
+        selectedAttemptCount=attemptCount;
+        selectedAttemptIndex=attemptCount;
+        selectedProblemTitle=problemTitle;
+        selectedAssignment=assignment;
+        previousSubmissionButton.Visible='on';
+        nextSubmissionButton.Visible='on';
+        updateSelectedAttempt();
+        studentInfoLabel.Text=studentSummaryText(T,student,assignment)+ ...
+            string(sprintf('  |  %d submitted solution row(s) for this problem in the current import.',attemptCount));
+    end
+
+    function stepSubmission(direction)
+        if isempty(selectedAttemptRows), return; end
+        selectedAttemptIndex=max(1,min(numel(selectedAttemptRows),selectedAttemptIndex+direction));
+        updateSelectedAttempt();
+    end
+
+    function updateSelectedAttempt()
+        if isempty(selectedAttemptRows) || selectedAttemptIndex<1 || ...
+                selectedAttemptIndex>numel(selectedAttemptRows)
+            return
+        end
+        rowIndex=selectedAttemptRows(selectedAttemptIndex);
+        [solutionCode,score,submittedAt]=submissionDetails(report,rowIndex);
         selectedSolutionCode=solutionCode;
         selectedSubmittedAt=submittedAt;
         selectedScore=score;
-        selectedProblemTitle=problemTitle;
-        selectedAssignment=assignment;
-        selectedAttemptCount=attemptCount;
-        solutionHeading.Text=sprintf('%s score: %g%% | %d submission row(s) in imported report | %s', ...
-            problemTitle,score,attemptCount,submittedAt);
-        if strlength(solutionCode)==0, solutionText.Value={'(No Solution column in this report.)'};
-        else, solutionText.Value=cellstr(splitlines(solutionCode)); end
-        selectedProblemUrl=solutionPageURL(T,rowIndex,assignment,problemTitle,problemLinks);
+        submissionPositionLabel.Text=sprintf('Submission %d of %d', ...
+            selectedAttemptIndex,numel(selectedAttemptRows));
+        if numel(selectedAttemptRows)>1
+            previousSubmissionButton.Visible='on';
+            nextSubmissionButton.Visible='on';
+            previousSubmissionButton.Enable=onOff(selectedAttemptIndex>1);
+            nextSubmissionButton.Enable=onOff(selectedAttemptIndex<numel(selectedAttemptRows));
+        else
+            previousSubmissionButton.Visible='off';
+            previousSubmissionButton.Enable='off';
+            nextSubmissionButton.Visible='off';
+            nextSubmissionButton.Enable='off';
+        end
+        solutionHeading.Text=sprintf('%s score: %g%% | %s', ...
+            selectedProblemTitle,selectedScore,selectedSubmittedAt);
+        if strlength(solutionCode)==0
+            solutionText.Value={'(No Solution column in this report.)'};
+        else
+            solutionText.Value=cellstr(splitlines(solutionCode));
+        end
+        if isfinite(selectedScore) && selectedScore<100
+            solutionFrame.BorderColor=[0.85 0.20 0.20];
+        else
+            solutionFrame.BorderColor=[0.20 0.58 0.34];
+        end
+        selectedProblemUrl=solutionPageURL(report,rowIndex,selectedAssignment, ...
+            selectedProblemTitle,problemLinks);
         openButton.Enable='off';
-        if startsWith(lower(selectedProblemUrl),["http://","https://"]), openButton.Enable='on'; end
+        if startsWith(lower(selectedProblemUrl),["http://","https://"])
+            openButton.Enable='on';
+        end
         if strlength(solutionCode)>0
             printCodeButton.Enable='on';
             generateReportButton.Enable='on';
@@ -755,8 +831,6 @@ function app = GraderReviewApp()
             printCodeButton.Enable='off';
             generateReportButton.Enable='off';
         end
-        studentInfoLabel.Text=studentSummaryText(T,student,assignment)+ ...
-            string(sprintf('  |  %d submitted solution row(s) for this problem in the current import.',attemptCount));
     end
 
     function printSelectedCode(~,~)
@@ -1011,18 +1085,15 @@ function problemTitle = problemFromColumn(T,assignment,columnName)
     end
 end
 
-function [rowIndex,attemptCount,solutionCode,score,submittedAt] = findSelectedSolution(T,student,assignment,problemTitle)
-    rowIndex=[]; attemptCount=0; solutionCode=""; score=NaN; submittedAt="";
+function [attemptRows,attemptCount] = findSelectedAttempts(T,student,assignment,problemTitle)
+    attemptRows=[]; attemptCount=0;
     v=string(T.Properties.VariableNames);
     nameCol=firstName(v,["Student Name","StudentName","Learner Name"]);
     emailCol=firstName(v,["Student Email","StudentEmail","Email","Email Address"]);
     assignmentCol=firstName(v,["Assignment Title","AssignmentTitle"]);
     problemCol=firstName(v,["Problem Title","ProblemTitle"]);
-    passCol=firstName(v,["Tests Passed","TestsPassed"]);
-    totalCol=firstName(v,["Total Tests","TotalTests"]);
     timeCol=firstName(v,["Submitted Time","SubmittedTime"]);
-    solutionCol=firstName(v,["Solution","Learner Solution"]);
-    if problemCol=="" || passCol=="" || totalCol=="", return; end
+    if problemCol=="", return; end
     if nameCol~="", names=string(T.(nameCol)); else, names=repmat("",height(T),1); end
     if emailCol~="", emails=lower(strtrim(string(T.(emailCol)))); else, emails=repmat("",height(T),1); end
     mask=names==string(student) | emails==lower(string(student));
@@ -1033,14 +1104,46 @@ function [rowIndex,attemptCount,solutionCode,score,submittedAt] = findSelectedSo
     if isempty(candidates), return; end
     if timeCol~=""
         times=parseTimes(T.(timeCol));
-        if any(~isnat(times(candidates))), [~,k]=max(times(candidates)); rowIndex=candidates(k);
-        else, rowIndex=candidates(end); end
-        if ~isnat(times(rowIndex)), submittedAt=string(datetime(times(rowIndex),'Format','dd-MMM-yyyy HH:mm')); end
+        dated=candidates(~isnat(times(candidates)));
+        undated=candidates(isnat(times(candidates)));
+        if ~isempty(dated)
+            sortKeys=[datenum(times(dated)),double(dated)]; %#ok<DATNM>
+            [~,order]=sortrows(sortKeys,[1 2]);
+            dated=dated(order);
+        end
+        attemptRows=[dated;undated];
     else
-        rowIndex=candidates(end);
+        attemptRows=candidates;
     end
-    score=100*double(T.(passCol)(rowIndex))/max(double(T.(totalCol)(rowIndex)),1);
+end
+
+function [solutionCode,score,submittedAt] = submissionDetails(T,rowIndex)
+    solutionCode=""; score=NaN; submittedAt="";
+    v=string(T.Properties.VariableNames);
+    solutionCol=firstName(v,["Solution","Learner Solution"]);
+    scoreCol=firstName(v,["% Score","Assessment Test Score","Score"]);
+    passCol=firstName(v,["Tests Passed","TestsPassed"]);
+    totalCol=firstName(v,["Total Tests","TotalTests"]);
+    timeCol=firstName(v,["Submitted Time","SubmittedTime"]);
     if solutionCol~="", solutionCode=string(T.(solutionCol)(rowIndex)); end
+    if scoreCol~=""
+        rawScore=T.(scoreCol)(rowIndex,:);
+        if iscell(rawScore), rawScore=rawScore{1}; end
+        score=str2double(erase(strtrim(string(rawScore)),"%"));
+    end
+    if ~isfinite(score) && passCol~="" && totalCol~=""
+        score=100*double(T.(passCol)(rowIndex))/max(double(T.(totalCol)(rowIndex)),1);
+    end
+    if timeCol~=""
+        times=parseTimes(T.(timeCol)(rowIndex,:));
+        if ~isempty(times) && ~isnat(times(1))
+            submittedAt=string(datetime(times(1),'Format','dd-MMM-yyyy HH:mm'));
+        end
+    end
+end
+
+function value=onOff(tf)
+    if tf, value='on'; else, value='off'; end
 end
 
 function createStudentReviewPDF(outputPath,metadata,solutionCode)
@@ -1388,5 +1491,6 @@ function t=parseTimes(x)
     end
     t.TimeZone='';
 end
+
 
 
