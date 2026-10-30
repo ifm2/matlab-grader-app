@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 18650)
+Total output lines: 1585
+
 function app = GraderReviewApp()
 % GraderReviewApp Local review tool for MATLAB Grader exports.
 %   GraderReviewApp launches a browser-style MATLAB UI for filtering
@@ -262,14 +265,12 @@ function app = GraderReviewApp()
                     contains(normalizedReportAssignment,normalizedURLAssignment);
                 rows=rows & ~ismissing(string(U.(titleCol))) & ~ismissing(string(U.(urlCol)));
                 for j=find(rows)'
-                    base=string(U.(urlCol)(j));
-                    if ismember('CohortURL',U.Properties.VariableNames)
-                        cohort=string(U.CohortURL(j));
-                        if strlength(cohort)>0 && ~startsWith(base,"http")
-                            base="https://grader.mathworks.com/courses/"+cohort+"/problems/"+base;
-                        end
+                    base=problemPageBase(U,j,urlCol);
+                    [assignmentID,problemID]=problemMapIDs(U,j,urlCol);
+                    if assignmentID~="" && problemID~=""
+                        problemLinks(problemIDMapKey(assignmentID,problemID))=char(base);
                     end
-                problemLinks(char(normalizeKey(string(assign)+"|"+string(U.(titleCol)(j)))))=char(base);
+                    problemLinks(char(normalizeKey(string(assign)+"|"+string(U.(titleCol)(j)))))=char(base);
                 end
                 if any(rows), matchedAssignments(end+1)=assign; end %#ok<AGROW>
             end
@@ -342,13 +343,37 @@ function app = GraderReviewApp()
             lv=string(L.Properties.VariableNames);
             titleCol=firstName(lv,["ProblemTitle","Problem Title"]);
             urlCol=firstName(lv,["ProblemURL","Problem URL"]);
-            if titleCol=="" || urlCol=="", error('URL map needs ProblemTitle and ProblemURL columns.'); end
+            if urlCol=="", error('URL map needs a ProblemURL column.'); end
             assignmentCol=firstName(lv,["SheetName","Assignment","AssignmentTitle","Assignment Title"]);
+            assignmentIDCol=firstName(lv,["Assignment ID","AssignmentID"]);
+            problemIDCol=firstName(lv,["Problem ID","ProblemID"]);
+            problemSetURLCol=firstName(lv,["ProblemSetURL","Problem Set URL"]);
+            hasAssignmentID=assignmentIDCol~="" || problemSetURLCol~="";
+            hasProblemID=problemIDCol~="" || normalizeKey(urlCol)=="problemurl";
+            if titleCol=="" && ~(hasAssignmentID && hasProblemID)
+                error('URL map needs ProblemTitle, or both Assignment ID and Problem ID columns.');
+            end
             problemLinks = containers.Map('KeyType','char','ValueType','char');
+            idMapCount=0;
             for ii = 1:height(L)
-                title=string(L.(titleCol)(ii));
-                if assignmentCol~="", mapKey=char(normalizeKey(string(L.(assignmentCol)(ii))+"|"+title)); else, mapKey=char(normalizeKey(title)); end
-                problemLinks(mapKey) = char(string(L.(urlCol)(ii)));
+                base=problemPageBase(L,ii,urlCol);
+                if titleCol~=""
+                    title=string(L.(titleCol)(ii));
+                    if assignmentCol~=""
+                        mapKey=char(normalizeKey(string(L.(assignmentCol)(ii))+"|"+title));
+                    else
+                        mapKey=char(normalizeKey(title));
+                    end
+                    problemLinks(mapKey)=char(base);
+                end
+                [assignmentID,problemID]=problemMapIDs(L,ii,urlCol);
+                if assignmentID~="" && problemID~=""
+                    problemLinks(problemIDMapKey(assignmentID,problemID))=char(base);
+                    idMapCount=idMapCount+1;
+                end
+            end
+            if titleCol=="" && idMapCount==0
+                error('URL map rows must contain valid Assignment IDs, Problem IDs, and Problem URLs.');
             end
             statusLabel.Text = "Loaded problem URL mappings: " + string(path);
         catch err
@@ -723,58 +748,7 @@ function app = GraderReviewApp()
         end
         selectedAssignment="";
         if ismember('Assignment',current.Properties.VariableNames), selectedAssignment=string(current.Assignment(row)); end
-        if selectedAssignment=="" && ~isempty(summaryRow) && ismember('Assignment',currentSummary.Properties.VariableNames)
-            selectedAssignment=string(currentSummary.Assignment(summaryRow));
-        end
-        studentInfoLabel.Text=studentSummaryText(report,selectedStudent,selectedAssignment);
-        if col<=width(current) && startsWith(string(current.Properties.VariableNames{col}),'Q_')
-            problemTitle=problemFromColumn(report,selectedAssignment,string(current.Properties.VariableNames{col}));
-            showSelectedSolution(report,selectedStudent,selectedAssignment,problemTitle);
-        else
-            selectedLabel.Text=chineseToPinyin(selectedStudent);
-            solutionHeading.Text='Select a problem score to preview its submitted code.';
-            solutionText.Value={'No solution selected.'};
-            submissionPositionLabel.Text='';
-            previousSubmissionButton.Visible='off';
-            previousSubmissionButton.Enable='off';
-            nextSubmissionButton.Visible='off';
-            nextSubmissionButton.Enable='off';
-            solutionFrame.BorderColor=[0.72 0.76 0.80];
-            selectedProblemUrl="";
-            openButton.Enable='off';
-            printCodeButton.Enable='off';
-            generateReportButton.Enable='off';
-        end
-    end
-
-    function showSelectedSolution(T,student,assignment,problemTitle)
-        [attemptRows,attemptCount]=findSelectedAttempts(T,student,assignment,problemTitle);
-        selectedLabel.Text=chineseToPinyin(student)+" — "+problemTitle;
-        if isempty(attemptRows)
-            solutionHeading.Text='No submitted solution found for this problem.';
-            solutionText.Value={''};
-            submissionPositionLabel.Text='';
-            previousSubmissionButton.Visible='off';
-            previousSubmissionButton.Enable='off';
-            nextSubmissionButton.Visible='off';
-            nextSubmissionButton.Enable='off';
-            solutionFrame.BorderColor=[0.72 0.76 0.80];
-            selectedProblemUrl="";
-            openButton.Enable='off';
-            printCodeButton.Enable='off';
-            generateReportButton.Enable='off';
-            return
-        end
-        selectedAttemptRows=attemptRows;
-        selectedAttemptCount=attemptCount;
-        selectedAttemptIndex=attemptCount;
-        selectedProblemTitle=problemTitle;
-        selectedAssignment=assignment;
-        previousSubmissionButton.Visible='on';
-        nextSubmissionButton.Visible='on';
-        updateSelectedAttempt();
-        studentInfoLabel.Text=studentSummaryText(T,student,assignment)+ ...
-            string(sprintf('  |  %d submitted solution row(s) for this problem in the current import.',attemptCount));
+        if selectedAssignment=="" && ~isempty(summaryRow) && ismember('Assignment',currentSummary.P…650 tokens truncated…ed solution row(s) for this problem in the current import.',attemptCount));
     end
 
     function stepSubmission(direction)
@@ -1263,19 +1237,85 @@ function url = solutionPageURL(T,rowIndex,assignment,problemTitle,links)
     v=string(T.Properties.VariableNames);
     solutionCol=firstName(v,["Solution ID","SolutionID"]);
     if solutionCol=="", return; end
-    mapKey=char(normalizeKey(string(assignment)+"|"+string(problemTitle)));
-    if isKey(links,mapKey)
-        base=string(links(mapKey));
-    elseif isKey(links,char(normalizeKey(problemTitle)))
-        base=string(links(char(normalizeKey(problemTitle))));
-    else
-        return
+    solutionID=strtrim(string(T.(solutionCol)(rowIndex)));
+    if ismissing(solutionID) || solutionID=="", return; end
+
+    base="";
+    [assignmentID,problemID]=problemMapIDs(T,rowIndex,"");
+    if assignmentID~="" && problemID~=""
+        idKey=problemIDMapKey(assignmentID,problemID);
+        if isKey(links,idKey), base=string(links(idKey)); end
     end
-    solutionID=string(T.(solutionCol)(rowIndex));
+    if base==""
+        mapKey=char(normalizeKey(string(assignment)+"|"+string(problemTitle)));
+        if isKey(links,mapKey)
+            base=string(links(mapKey));
+        elseif isKey(links,char(normalizeKey(problemTitle)))
+            base=string(links(char(normalizeKey(problemTitle))));
+        else
+            return
+        end
+    end
     if contains(base,"/solutions/")
         url=base+solutionID;
     else
         url=base+"/solutions/"+solutionID;
+    end
+end
+
+function [assignmentID,problemID]=problemMapIDs(T,rowIndex,urlCol)
+    assignmentID="";
+    problemID="";
+    vars=string(T.Properties.VariableNames);
+    assignmentIDCol=firstName(vars,["Assignment ID","AssignmentID"]);
+    problemIDCol=firstName(vars,["Problem ID","ProblemID"]);
+    if assignmentIDCol~=""
+        assignmentID=leadingNumericID(T.(assignmentIDCol)(rowIndex,:));
+    elseif any(vars=="ProblemSetURL")
+        assignmentID=leadingNumericID(T.ProblemSetURL(rowIndex,:));
+    end
+    if problemIDCol~=""
+        problemID=leadingNumericID(T.(problemIDCol)(rowIndex,:));
+    elseif urlCol~=""
+        problemID=leadingNumericID(T.(urlCol)(rowIndex,:));
+    elseif any(vars=="ProblemURL")
+        problemID=leadingNumericID(T.ProblemURL(rowIndex,:));
+    end
+end
+
+function id=leadingNumericID(value)
+    value=strtrim(string(value));
+    id="";
+    if ismissing(value) || value=="", return; end
+    token=regexp(char(value),'^(\d+)','tokens','once');
+    if ~isempty(token), id=string(token{1}); end
+end
+
+function key=problemIDMapKey(assignmentID,problemID)
+    key=char("assignment"+normalizeKey(assignmentID)+"problem"+normalizeKey(problemID));
+end
+
+function base=problemPageBase(T,rowIndex,urlCol)
+    base=strtrim(string(T.(urlCol)(rowIndex,:)));
+    if ismissing(base) || base=="", return; end
+    if startsWith(lower(base),["http://","https://"]), return; end
+
+    vars=string(T.Properties.VariableNames);
+    cohortCol=firstName(vars,["CohortURL","CourseURL","Course URL"]);
+    if cohortCol=="", return; end
+    course=strtrim(string(T.(cohortCol)(rowIndex,:)));
+    if ismissing(course) || course=="", return; end
+    if ~startsWith(lower(course),["http://","https://"])
+        course="https://grader.mathworks.com/courses/"+course;
+    end
+    if startsWith(base,"/courses/")
+        base="https://grader.mathworks.com"+base;
+    elseif startsWith(base,"courses/")
+        base="https://grader.mathworks.com/"+base;
+    elseif startsWith(base,"/problems/")
+        base=course+base;
+    else
+        base=course+"/problems/"+base;
     end
 end
 
@@ -1491,6 +1531,7 @@ function t=parseTimes(x)
     end
     t.TimeZone='';
 end
+
 
 
 

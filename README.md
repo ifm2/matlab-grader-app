@@ -44,7 +44,9 @@ Import a separate Excel or CSV roster. It should contain an account identifier (
 
 ### Problem URLs (optional)
 
-To open a submission in MATLAB Grader, import a local URL map with `ProblemTitle` and `ProblemURL` columns. The app uses the problem link and solution ID from the report to open the learner's solution. An optional `Assignment` or `SheetName` column supports repeated problem titles across assignments.
+To open a submission in MATLAB Grader, import a local URL map. The most reliable format has `AssignmentID`, `ProblemID`, and `ProblemURL` columns; `ProblemTitle` is optional. `ProblemURL` can be a full problem-page URL, or a problem URL slug together with a `CohortURL` column. The app matches the IDs in the Grader export, then appends that row's `Solution ID` to open the exact submission. This avoids title spelling differences.
+
+The existing `URL_database.xlsx` format is also supported: `SheetName`, `ProblemSetURL`, `ProblemTitle`, `ProblemURL`, and `CohortURL`. The app extracts assignment and problem IDs from the numeric prefixes in `ProblemSetURL` and `ProblemURL`. Older maps with `ProblemTitle` and `ProblemURL` still work as a fallback; add `Assignment` or `SheetName` when titles repeat between assignments.
 
 ## Review workflow
 
@@ -71,3 +73,4 @@ To enable Pinyin display, install `requirements-pinyin.txt` into the same Python
 - Reference solutions are not imported yet. MathWorks documents that the instructor MATLAB code-files ZIP contains reference solutions and learner code for each assessment item; a future version could import that ZIP and match reference files to assessment items. See [Download submissions to analyze learning outcomes](https://www.mathworks.com/help/matlabgrader/ug/download-submissions-to-analyze-learning-outcomes.html).
 
 This app is a review aid, not a replacement for checking results in MATLAB Grader or your institution's student-record systems.
+
