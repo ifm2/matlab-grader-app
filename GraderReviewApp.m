@@ -60,7 +60,7 @@ function app = GraderReviewApp()
     exportButton = uibutton(controls,'Text','Export view…','ButtonPushedFcn',@(~,~)exportView());
     exportButton.Layout.Row = 1; exportButton.Layout.Column = 7;
     showChineseNames = uicheckbox(controls,'Text','Show Chinese characters','Value',false, ...
-        'ValueChangedFcn',@(~,~)refreshView());
+        'ValueChangedFcn',@(~,~)toggleOriginalNameColumn());
     showChineseNames.Layout.Row = 2; showChineseNames.Layout.Column = 7;
     showChineseNames.Tooltip = 'Add the original student name to the table; First and Last remain in Pinyin.';
     statusLabel = uilabel(controls,'Text','Load sample data or choose a Grader report and group spreadsheet.','FontColor',[0.25 0.32 0.40]);
@@ -369,6 +369,7 @@ function app = GraderReviewApp()
             if ismember('StudentName',displayTable.Properties.VariableNames)
                 if showChineseNames.Value
                     displayTable.Properties.VariableNames{'StudentName'}='OriginalName';
+                    displayTable=placeOriginalNameAfterLast(displayTable);
                 else
                     displayTable.StudentName=[];
                 end
@@ -396,6 +397,105 @@ function app = GraderReviewApp()
                 statusLabel.Text = "Could not prepare report: " + string(err.message);
             end
         end
+    end
+
+    function toggleOriginalNameColumn()
+        % Keep the visible row order intact when the table's columns change.
+        data=resultTable.Data;
+        if ~istable(data) || isempty(data) || isempty(currentSummary)
+            refreshView();
+            return
+        end
+
+        displayed=resultTable.DisplayData;
+        if ~istable(displayed) || height(displayed)~=height(data)
+            refreshView();
+            return
+        end
+
+        rowOrder=matchDisplayedRows(data,displayed);
+        currentSummary=currentSummary(rowOrder,:);
+        data=data(rowOrder,:);
+
+        if showChineseNames.Value
+            if ismember('StudentName',currentSummary.Properties.VariableNames)
+                originalNames=currentSummary.StudentName;
+            elseif ismember('StudentName',data.Properties.VariableNames)
+                originalNames=data.StudentName;
+            else
+                refreshView();
+                return
+            end
+            if ismember('StudentName',data.Properties.VariableNames)
+                data.Properties.VariableNames{'StudentName'}='OriginalName';
+                data.OriginalName=originalNames;
+            else
+                data.OriginalName=originalNames;
+            end
+            data=placeOriginalNameAfterLast(data);
+        elseif ismember('OriginalName',data.Properties.VariableNames)
+            data.OriginalName=[];
+        end
+
+        resultTable.Data=data;
+        [shortHeaders,headerHelp]=makeProblemHeaders(data.Properties.VariableNames,assignmentDrop.Value);
+        resultTable.ColumnName=shortHeaders;
+        resultTable.Tooltip=headerHelp;
+        resultTable.ColumnWidth=makeColumnWidths(data.Properties.VariableNames);
+        if failsStyleApplied
+            removeStyle(resultTable,1);
+            failsStyleApplied=false;
+        end
+        applyFailsAlignment(data.Properties.VariableNames);
+    end
+
+    function rowOrder=matchDisplayedRows(data,displayed)
+        % Map sorted DisplayData rows to Data row indices; duplicates are stable.
+        if width(data)~=width(displayed) || ...
+                ~isequal(data.Properties.VariableNames,displayed.Properties.VariableNames)
+            error('GraderReviewApp:DisplayDataMismatch', ...
+                'The displayed rows do not match the table columns.');
+        end
+
+        keys=tableRowKeys(data);
+        displayKeys=tableRowKeys(displayed);
+        rowOrder=zeros(height(displayed),1);
+        used=false(height(data),1);
+        for row=1:height(displayed)
+            candidates=find(~used & keys==displayKeys(row),1,'first');
+            if isempty(candidates)
+                error('GraderReviewApp:DisplayDataMismatch', ...
+                    'Could not match a displayed student row to the table data.');
+            end
+            rowOrder(row)=candidates;
+            used(candidates)=true;
+        end
+    end
+
+    function keys=tableRowKeys(T)
+        keys=strings(height(T),1);
+        for row=1:height(T)
+            fields=strings(1,width(T));
+            for column=1:width(T)
+                value=string(T.(T.Properties.VariableNames{column})(row,:));
+                if ismissing(value), value="<missing>"; end
+                fields(column)=string(strlength(value))+":"+value;
+            end
+            keys(row)=strjoin(fields,"|");
+        end
+    end
+
+    function T=placeOriginalNameAfterLast(T)
+        names=T.Properties.VariableNames;
+        originalIndex=find(strcmp(names,'OriginalName'),1);
+        lastIndex=find(strcmp(names,'Last'),1);
+        if isempty(originalIndex) || isempty(lastIndex) || originalIndex==lastIndex+1
+            return
+        end
+        names(originalIndex)=[];
+        lastIndex=find(strcmp(names,'Last'),1);
+        names=[names(1:lastIndex),{'OriginalName'},names(lastIndex+1:end)];
+        T=T(:,names);
     end
 
     function applyFailsAlignment(variableNames)
@@ -1288,4 +1388,5 @@ function t=parseTimes(x)
     end
     t.TimeZone='';
 end
+
 
