@@ -17,6 +17,15 @@ function [westernName, givenName, familyName, converted, hasHan] = chineseToPiny
         return
     end
 
+    [savedTranslation,hasSavedTranslation] = savedNameTranslation(original);
+    if hasSavedTranslation
+        westernName = savedTranslation;
+        givenName = firstNameToken(westernName);
+        familyName = lastNameToken(westernName);
+        converted = ~containsHanCharacter(westernName);
+        return
+    end
+
     persistent pypinyinReady
     if isempty(pypinyinReady)
         try
@@ -60,9 +69,51 @@ function [westernName, givenName, familyName, converted, hasHan] = chineseToPiny
         familyName = capitalizePinyin(join(syllables(1:surnameLength),''));
         givenName = capitalizePinyin(join(syllables(surnameLength+1:end),''));
         westernName = strtrim(givenName+" "+familyName);
-        converted = true;
+        converted = ~containsHanCharacter(westernName);
     catch
         % Keep the app usable when Python or pypinyin is not configured.
+    end
+end
+
+function [translation,found] = savedNameTranslation(original)
+    persistent translationMap cachedFileDate
+    translation = "";
+    found = false;
+    mapPath = fullfile(fileparts(mfilename('fullpath')),'real-data','NameTranslations.csv');
+    fileInfo = dir(mapPath);
+    if isempty(fileInfo)
+        fileDate = NaN;
+    else
+        fileDate = fileInfo.datenum;
+    end
+    if isempty(translationMap) || isempty(cachedFileDate) || ...
+            ~(isequaln(fileDate,cachedFileDate))
+        translationMap = containers.Map('KeyType','char','ValueType','char');
+        if isfile(mapPath)
+            try
+                saved = readtable(mapPath,'TextType','string','VariableNamingRule','preserve');
+                vars = string(saved.Properties.VariableNames);
+                nameCol = find(strcmpi(vars,'OriginalName'),1);
+                translationCol = find(strcmpi(vars,'Translation'),1);
+                if ~isempty(nameCol) && ~isempty(translationCol)
+                    for k=1:height(saved)
+                        source = strtrim(string(saved{ k,nameCol }));
+                        value = strtrim(string(saved{ k,translationCol }));
+                        if source~="" && value~=""
+                            translationMap(char(source)) = char(value);
+                        end
+                    end
+                end
+            catch
+                % An unreadable local map should not prevent report import.
+            end
+        end
+        cachedFileDate = fileDate;
+    end
+    key = char(strtrim(string(original)));
+    if isKey(translationMap,key)
+        translation = string(translationMap(key));
+        found = true;
     end
 end
 

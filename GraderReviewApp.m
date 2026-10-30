@@ -18,12 +18,23 @@ function app = GraderReviewApp()
     uimenu(fileMenu,'Text','Import student groups…','MenuSelectedFcn',@(~,~)chooseGroups());
     uimenu(fileMenu,'Text','Import Problem URLs…','MenuSelectedFcn',@(~,~)importProblemLinks());
     uimenu(fileMenu,'Text','Export view…','MenuSelectedFcn',@(~,~)exportView());
-    filterMenu=uimenu(fig,'Text','Filter');
-    groupMenu=uimenu(filterMenu,'Text','Groups');
+    displayMenu=uimenu(fig,'Text','Display');
+    groupMenu=uimenu(displayMenu,'Text','Groups');
     menuGroupNames=strings(0,1);
     groupMenuItems=gobjects(0,1);
+    passFailMenu=uimenu(displayMenu,'Text','Pass/Fail');
+    failedOnly=false;
+    failedOnlyMenu=uimenu(passFailMenu,'Text','Only show fails','Checked','off', ...
+        'MenuSelectedFcn',@(~,~)toggleFailedOnly());
+    showChineseNames=false;
+    showChineseNamesMenu=uimenu(displayMenu,'Text','Show Chinese characters','Checked','off', ...
+        'MenuSelectedFcn',@(~,~)toggleChineseNames());
+    showQuestionDetails=true;
+    problemTitlesForStats=strings(0,1);
+    showQuestionDetailsMenu=uimenu(displayMenu,'Text','Show table question details','Checked','on', ...
+        'MenuSelectedFcn',@(~,~)toggleQuestionDetails());
     root = uigridlayout(fig,[4 1]);
-    root.RowHeight = {72, 56, '1x', 28};
+    root.RowHeight = {72, 38, '1x', 28};
     root.Padding = [18 14 18 12];
     root.RowSpacing = 10;
 
@@ -47,22 +58,15 @@ function app = GraderReviewApp()
     loadReal = uibutton(headerButtons,'Text','Load real data (temporary)','ButtonPushedFcn',@(~,~)loadRealData());
     loadReal.Layout.Column = 2;
 
-    controls = uigridlayout(root,[1 3]);
+    controls = uigridlayout(root,[1 1]);
     controls.Layout.Row = 2;
-    controls.ColumnWidth = {250,'1x',205};
-    controls.RowHeight = {48};
+    controls.ColumnWidth = {'1x'};
+    controls.RowHeight = {32};
     controls.Padding = [0 0 0 0];
-    controls.ColumnSpacing = 10;
     currentAssignment="All assignments";
     selectedGroups = "All groups";
-    failedOnly = uicheckbox(controls,'Text','Show students with failed solutions only','Value',false,'ValueChangedFcn',@(~,~)refreshView());
-    failedOnly.Layout.Column = 1;
-    showChineseNames = uicheckbox(controls,'Text','Show Chinese characters','Value',false, ...
-        'ValueChangedFcn',@(~,~)toggleOriginalNameColumn());
-    showChineseNames.Layout.Column = 3;
-    showChineseNames.Tooltip = 'Add the original student name to the table; First and Last remain in Pinyin.';
     statusLabel = uilabel(controls,'Text','Load sample data or choose a Grader report and group spreadsheet.','FontColor',[0.25 0.32 0.40]);
-    statusLabel.Layout.Column = 2;
+    statusLabel.Layout.Column = 1;
 
     content = uigridlayout(root,[1 2]);
     content.Layout.Row = 3;
@@ -71,12 +75,12 @@ function app = GraderReviewApp()
     resultsPanel = uipanel(content,'Title','Student Results');
     resultsPanel.Layout.Column = 1;
     resultGrid = uigridlayout(resultsPanel,[2 1]);
-    resultGrid.RowHeight = {105,'1x'};
+    resultGrid.RowHeight = {175,'1x'};
     resultGrid.Padding = [8 8 8 8];
     statsGrid = uigridlayout(resultGrid,[2 5]);
     statsGrid.ColumnWidth = {145,145,'1x','1x','1x'};
     statsGrid.Layout.Row = 1;
-    statsGrid.RowHeight = {52,42};
+    statsGrid.RowHeight = {115,48};
     statsGrid.Padding = [0 0 4 4];
     overallStat = statLabel(statsGrid,1,1,'Average overall','—');
     completionStat = statLabel(statsGrid,1,2,'Completion','—');
@@ -284,6 +288,7 @@ function app = GraderReviewApp()
     function loadReport(path)
         try
             report = readtable(path,'VariableNamingRule','preserve');
+            promptForNameTranslations(report);
             reportHasAttemptHistory=hasRepeatedSubmissions(report);
             if ismember("Assignment Title",string(report.Properties.VariableNames))
                 assignments=unique(string(report.('Assignment Title')),'stable');
@@ -302,6 +307,67 @@ function app = GraderReviewApp()
         catch err
             uialert(fig,err.message,'Could not read report');
         end
+    end
+
+    function promptForNameTranslations(T)
+        vars=string(T.Properties.VariableNames);
+        nameCol=firstName(vars,["Student Name","StudentName","Learner Name"]);
+        if nameCol=="", return; end
+        names=unique(strtrim(string(T.(nameCol))),'stable');
+        for nameIndex=1:numel(names)
+            originalName=names(nameIndex);
+            if originalName=="", continue; end
+            [convertedName,~,~,wasConverted,sourceHasHan]=chineseToPinyin(originalName);
+            [~,~,~,~,remainingHan]=chineseToPinyin(convertedName);
+            if ~sourceHasHan || (wasConverted && ~remainingHan), continue; end
+
+            promptText=sprintf(['Pinyin conversion left Chinese characters in this name:\n\n%s\n\n' ...
+                'Enter the display name in First Last order (for example, Ziyu Liu).\n' ...
+                'Leave blank to skip this name; cancel to skip the remaining names.'],char(originalName));
+            answer=inputdlg({promptText},'Name needs a translation',[1 72],{''});
+            if isempty(answer), break; end
+            translation=strtrim(string(answer{1}));
+            if translation=="", continue; end
+            [~,~,~,~,translationHasHan]=chineseToPinyin(translation);
+            if translationHasHan
+                uialert(fig,'Enter a translation using Latin characters. This name was not saved.','Translation not saved');
+                continue
+            end
+            try
+                saveNameTranslation(originalName,translation);
+            catch err
+                uialert(fig,"Could not save the local translation: "+string(err.message),'Translation not saved');
+            end
+        end
+    end
+
+    function saveNameTranslation(originalName,translation)
+        translationPath=fullfile(fileparts(mfilename('fullpath')),'real-data','NameTranslations.csv');
+        translationFolder=fileparts(translationPath);
+        if ~isfolder(translationFolder), mkdir(translationFolder); end
+        if isfile(translationPath)
+            saved=readtable(translationPath,'TextType','string','VariableNamingRule','preserve');
+            vars=string(saved.Properties.VariableNames);
+            nameCol=firstName(vars,["OriginalName","Original Name"]);
+            translationCol=firstName(vars,["Translation","Pinyin"]);
+            if nameCol=="" || translationCol==""
+                error('The local name translation file must contain OriginalName and Translation columns.');
+            end
+            saved=table(strtrim(string(saved.(nameCol))),strtrim(string(saved.(translationCol))), ...
+                'VariableNames',{'OriginalName','Translation'});
+        else
+            saved=table(string(originalName),string(translation), ...
+                'VariableNames',{'OriginalName','Translation'});
+        end
+        match=find(strtrim(saved.OriginalName)==strtrim(string(originalName)),1);
+        if isempty(match)
+            saved=[saved;table(string(originalName),string(translation), ...
+                'VariableNames',{'OriginalName','Translation'})];
+        else
+            saved.Translation(match)=string(translation);
+        end
+        writetable(saved,translationPath);
+        clear chineseToPinyin
     end
 
     function loadGroups(path)
@@ -399,13 +465,13 @@ function app = GraderReviewApp()
             if ~any(selectedGroups=="All groups")
                 R = R(ismember(string(R.Group),selectedGroups),:);
             end
-            if failedOnly.Value && ismember('FailedCount',R.Properties.VariableNames)
+            if failedOnly && ismember('FailedCount',R.Properties.VariableNames)
                 R = R(R.FailedCount > 0,:);
             end
             currentSummary=R;
             displayTable=R;
             if ismember('StudentName',displayTable.Properties.VariableNames)
-                if showChineseNames.Value
+                if showChineseNames
                     displayTable.Properties.VariableNames{'StudentName'}='OriginalName';
                     displayTable=placeOriginalNameAfterLast(displayTable);
                 else
@@ -419,14 +485,14 @@ function app = GraderReviewApp()
             resultTable.Data = displayTable;
             [shortHeaders,headerHelp]=makeProblemHeaders(displayTable.Properties.VariableNames,currentAssignment);
             resultTable.ColumnName = shortHeaders;
-            resultTable.Tooltip=headerHelp;
+            updateTableQuestionTooltip(headerHelp);
             resultTable.ColumnWidth=makeColumnWidths(displayTable.Properties.VariableNames);
             applyFailsAlignment(displayTable.Properties.VariableNames);
             updateResultsTitle();
             updateStats(report);
             statusLabel.Text = sprintf('%d students shown. Failed solutions are based on Tests Passed < Total Tests.',height(R));
-            if reportHasChineseNames(report) && ~pinyinLibraryAvailable()
-                statusLabel.Text = statusLabel.Text + " Chinese names are unchanged: install pypinyin in MATLAB's Python environment to display Pinyin.";
+            if reportHasUntranslatedChineseNames(report)
+                statusLabel.Text = statusLabel.Text + " Some Chinese names remain untranslated; add Pinyin or install pypinyin.";
             end
         catch err
             if ~isempty(err.stack)
@@ -434,6 +500,41 @@ function app = GraderReviewApp()
             else
                 statusLabel.Text = "Could not prepare report: " + string(err.message);
             end
+        end
+    end
+
+    function toggleFailedOnly()
+        failedOnly=~failedOnly;
+        failedOnlyMenu.Checked=onOff(failedOnly);
+        refreshView();
+    end
+
+    function toggleChineseNames()
+        showChineseNames=~showChineseNames;
+        showChineseNamesMenu.Checked=onOff(showChineseNames);
+        toggleOriginalNameColumn();
+    end
+
+    function toggleQuestionDetails()
+        showQuestionDetails=~showQuestionDetails;
+        showQuestionDetailsMenu.Checked=onOff(showQuestionDetails);
+        [~,headerHelp]=makeProblemHeaders(resultTable.Data.Properties.VariableNames,currentAssignment);
+        updateTableQuestionTooltip(headerHelp);
+    end
+
+    function updateProblemStatTooltips()
+        for q=1:min(numel(problemStats),numel(problemTitlesForStats))
+            if isgraphics(problemStats(q))
+                problemStats(q).Tooltip=problemTitlesForStats(q);
+            end
+        end
+    end
+
+    function updateTableQuestionTooltip(headerHelp)
+        if showQuestionDetails
+            resultTable.Tooltip=headerHelp;
+        else
+            resultTable.Tooltip={};
         end
     end
 
@@ -455,7 +556,7 @@ function app = GraderReviewApp()
         currentSummary=currentSummary(rowOrder,:);
         data=data(rowOrder,:);
 
-        if showChineseNames.Value
+        if showChineseNames
             if ismember('StudentName',currentSummary.Properties.VariableNames)
                 originalNames=currentSummary.StudentName;
             elseif ismember('StudentName',data.Properties.VariableNames)
@@ -478,7 +579,7 @@ function app = GraderReviewApp()
         resultTable.Data=data;
         [shortHeaders,headerHelp]=makeProblemHeaders(data.Properties.VariableNames,currentAssignment);
         resultTable.ColumnName=shortHeaders;
-        resultTable.Tooltip=headerHelp;
+        updateTableQuestionTooltip(headerHelp);
         resultTable.ColumnWidth=makeColumnWidths(data.Properties.VariableNames);
         if failsStyleApplied
             removeStyle(resultTable,1);
@@ -560,6 +661,7 @@ function app = GraderReviewApp()
             overallStat.Text = 'Average overall | —';
             completionStat.Text = "Completion | —"+newline+"Avg submissions to correct | —";
             groupCompletionLabel.Text = 'Completion by group: —';
+            problemTitlesForStats=strings(0,1);
             statsGrid.ColumnWidth=repmat({'1x'},1,5);
             for q=1:numel(problemStats), if isgraphics(problemStats(q)), delete(problemStats(q)); end, end
             problemStats=gobjects(1,0);
@@ -585,13 +687,15 @@ function app = GraderReviewApp()
         statsGrid.ColumnWidth{2}=145;
         for q=1:numel(problemStats), if isgraphics(problemStats(q)), delete(problemStats(q)); end, end
         problemStats=gobjects(1,numel(problemNames));
+        problemTitlesForStats=problemNames;
         for q=1:numel(problemNames)
             problemStats(q)=statLabel(statsGrid,1,q+2,'Problem average','—');
         end
         groupCompletionLabel.Layout.Column=[1 requiredColumns];
         for q=1:numel(problemStats)
-            problemStats(q).Text = sprintf('%s | %.1f%%',problemNames(q),problemMean(q));
+            problemStats(q).Text = sprintf('Q%d | %.1f%%',q,problemMean(q));
         end
+        updateProblemStatTooltips();
         groupCompletionLabel.Text = 'Completion by group: ' + strjoin(completionByGroup,'   ·   ');
     end
 
@@ -846,13 +950,8 @@ function app = GraderReviewApp()
         if startsWith(lower(selectedProblemUrl),["http://","https://"])
             openButton.Enable='on';
         end
-        if strlength(solutionCode)>0
-            printCodeButton.Enable='on';
-            generateReportButton.Enable='on';
-        else
-            printCodeButton.Enable='off';
-            generateReportButton.Enable='off';
-        end
+        printCodeButton.Enable=onOff(strlength(solutionCode)>0);
+        generateReportButton.Enable=onOff(selectedAttemptsHaveCode());
     end
 
     function printSelectedCode(~,~)
@@ -887,8 +986,8 @@ function app = GraderReviewApp()
     end
 
     function generateStudentReport(~,~)
-        if strlength(selectedSolutionCode)==0
-            uialert(fig,'This report does not contain solution code for the selected submission.','No code to include');
+        if ~selectedAttemptsHaveCode()
+            uialert(fig,'This report does not contain solution code for any submission in the selected history.','No code to include');
             return
         end
         safeName=regexprep(char(chineseToPinyin(selectedStudent)+"_"+selectedProblemTitle),'[^A-Za-z0-9_-]','_');
@@ -904,10 +1003,35 @@ function app = GraderReviewApp()
     end
 
     function generateReportToFile(outputPath)
-        if strlength(selectedSolutionCode)==0
-            error('Select a problem score with an available solution before generating a report.');
+        if isempty(selectedAttemptRows) || ~selectedAttemptsHaveCode()
+            error('Select a problem with at least one available solution before generating a report.');
         end
-        createStudentReviewPDF(outputPath,selectedStudentMetadata(),selectedSolutionCode);
+        attemptCount=numel(selectedAttemptRows);
+        metadata=selectedStudentMetadata();
+        metadata.Attempt=0;
+        metadata.AttemptCount=attemptCount;
+        metadata=repmat(metadata,attemptCount,1);
+        solutionCodes=strings(attemptCount,1);
+        for attemptIndex=1:attemptCount
+            rowIndex=selectedAttemptRows(attemptIndex);
+            [solutionCodes(attemptIndex),score,submittedAt]=submissionDetails(report,rowIndex);
+            metadata(attemptIndex).Score=score;
+            metadata(attemptIndex).Submitted=char(submittedAt);
+            metadata(attemptIndex).Attempt=attemptIndex;
+            metadata(attemptIndex).AttemptCount=attemptCount;
+        end
+        createStudentReviewPDF(outputPath,metadata,solutionCodes);
+    end
+
+    function hasCode=selectedAttemptsHaveCode()
+        hasCode=false;
+        for attemptIndex=1:numel(selectedAttemptRows)
+            [code,~,~]=submissionDetails(report,selectedAttemptRows(attemptIndex));
+            if strlength(code)>0
+                hasCode=true;
+                return
+            end
+        end
     end
 
     function openSelected(~,~)
@@ -1168,9 +1292,8 @@ function value=onOff(tf)
     if tf, value='on'; else, value='off'; end
 end
 
-function createStudentReviewPDF(outputPath,metadata,solutionCode)
-% Create a compact, one-page A4 review sheet. HTML is used for compact code
-% layout, inside the Report API PDF container.
+function createStudentReviewPDF(outputPath,metadata,solutionCodes)
+% Create an A4 PDF containing each available submission in chronological order.
     import mlreportgen.report.Report
     import mlreportgen.dom.PageSize
     import mlreportgen.dom.PageMargins
@@ -1179,47 +1302,62 @@ function createStudentReviewPDF(outputPath,metadata,solutionCode)
     if ~endsWith(lower(string(outputPath)),'.pdf')
         error('The report output filename must end in .pdf.');
     end
-    code=char(solutionCode);
-    codeLines=splitlines(string(code));
-    charsPerInchWidth=(8.27-0.76)*72/0.60;
-    linesAt7=sum(max(1,ceil(strlength(codeLines)/(charsPerInchWidth/7.0))));
-    linesAt62=sum(max(1,ceil(strlength(codeLines)/(charsPerInchWidth/6.2))));
-    linesAt48=sum(max(1,ceil(strlength(codeLines)/(charsPerInchWidth/4.8))));
-    if linesAt7<=65
-        codeFont=7.0;
-    elseif linesAt62<=80
-        codeFont=6.2;
-    elseif linesAt48<=100
-        codeFont=4.8;
-    else
-        error('This solution is too long to fit legibly on one A4 page. The PDF was not created.');
+    if isempty(metadata), error('No submission metadata was provided.'); end
+    solutionCodes=string(solutionCodes(:));
+    if numel(solutionCodes)~=numel(metadata)
+        error('Submission metadata and solution-code counts do not match.');
     end
-    scoreText='';
-    if isfield(metadata,'Score') && isfinite(metadata.Score), scoreText=sprintf('%.0f%%',metadata.Score); end
-    attemptsText='';
-    if isfield(metadata,'Attempts') && metadata.Attempts>0, attemptsText=sprintf('%d',metadata.Attempts); end
+    attemptsText=sprintf('%d',numel(metadata));
     details={ ...
         'Student', getMetadataField(metadata,'Student');
         'Group', getMetadataField(metadata,'Group');
         'Assignment', getMetadataField(metadata,'Assignment');
         'Problem', getMetadataField(metadata,'Problem');
-        'Score', scoreText;
-        'Submitted', getMetadataField(metadata,'Submitted');
-        'Submission rows', attemptsText};
+        'Submissions', attemptsText};
     detailHtml='';
     for k=1:size(details,1)
         if isempty(details{k,2}), continue; end
-        detailHtml=[detailHtml '<span class="label">' escapeHtml(details{k,1}) ':</span> ' ...
-            '<span>' escapeHtml(details{k,2}) '</span><br/>']; %#ok<AGROW>
+        detailHtml=[detailHtml '<div class="meta-line"><span class="label">' ...
+            escapeHtml(details{k,1}) ':</span> <span>' escapeHtml(details{k,2}) '</span></div>']; %#ok<AGROW>
     end
+    submissionCount=numel(metadata);
+    submissionHtmlParts=cell(submissionCount,1);
+    for k=1:submissionCount
+        attemptNumber=k;
+        if isfield(metadata,'Attempt'), attemptNumber=metadata(k).Attempt; end
+        attemptCount=submissionCount;
+        if isfield(metadata,'AttemptCount'), attemptCount=metadata(k).AttemptCount; end
+        attemptScore='Score unavailable';
+        if isfield(metadata,'Score') && isfinite(metadata(k).Score)
+            attemptScore=sprintf('Score: %.0f%%',metadata(k).Score);
+        end
+        submitted='Time unavailable';
+        if isfield(metadata,'Submitted') && strlength(string(metadata(k).Submitted))>0
+            submitted=char(string(metadata(k).Submitted));
+        end
+        code=char(solutionCodes(k));
+        if isempty(strtrim(code))
+            code='(No solution code was included for this submission.)';
+        end
+        pageBreak='';
+        if k>1, pageBreak='page-break-before:always;'; end
+        submissionHtmlParts{k}=[ ...
+            '<section class="submission" style="' pageBreak '">' ...
+            '<h2>Submission ' sprintf('%d of %d',attemptNumber,attemptCount) '</h2>' ...
+            '<div class="attempt-meta">' escapeHtml(attemptScore) ' &nbsp; | &nbsp; Submitted: ' ...
+            escapeHtml(submitted) '</div><pre>' escapeHtml(code) '</pre></section>'];
+    end
+    submissionHtml=strjoin(submissionHtmlParts,'');
     html=['<html><head><meta charset="utf-8"/><style>' ...
-        '@page{size:A4 portrait;margin:8mm;}body{font-family:Arial,sans-serif;color:#17212b;margin:0;}' ...
-        'h1{font-size:15pt;margin:0 0 4pt 0;} .meta{font-size:8pt;line-height:1.18;margin:0 0 6pt 0;}' ...
-        '.label{font-weight:bold;}h2{font-size:9pt;margin:4pt 0 2pt 0;}' ...
-        'pre{font-family:Consolas,"Courier New",monospace;font-size:' num2str(codeFont) 'pt;' ...
-        'line-height:0.98;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;}' ...
+        '@page{size:A4 portrait;margin:12mm;}body{font-family:Arial,sans-serif;color:#17212b;margin:0;}' ...
+        'h1{font-size:16pt;margin:0 0 4pt 0;} .meta{font-size:8pt;line-height:1;margin:0 0 4pt 0;}' ...
+        '.meta-line{display:block;margin:0;padding:0;line-height:1;}' ...
+        '.label{font-weight:bold;}h2{font-size:11pt;margin:6pt 0 2pt 0;}' ...
+        '.attempt-meta{font-size:9pt;margin:0 0 5pt 0;}' ...
+        'pre{font-family:Consolas,"Courier New",monospace;font-size:8pt;' ...
+        'line-height:1.05;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;}' ...
         '</style></head><body><h1>Student solution review</h1><div class="meta">' ...
-        detailHtml '</div><h2>Submitted solution</h2><pre>' escapeHtml(code) '</pre></body></html>'];
+        detailHtml '</div>' submissionHtml '</body></html>'];
     rpt=Report(char(outputPath),'pdf');
     cleanup=onCleanup(@()closeReportIfOpen(rpt));
     rpt.Layout.PageSize=PageSize('11.69in','8.27in','portrait');
@@ -1259,8 +1397,8 @@ end
 
 function value=getMetadataField(metadata,name)
     value='';
-    if isfield(metadata,name) && ~isempty(metadata.(name))
-        value=char(string(metadata.(name)));
+    if isfield(metadata,name) && ~isempty(metadata(1).(name))
+        value=char(string(metadata(1).(name)));
     end
 end
 
@@ -1475,7 +1613,6 @@ function [counts,problemTitles,problemMeans,overallMean,groupText] = summarizeSt
     if counts.Enrolled>0, counts.CompletionRate=100*counts.Completed/counts.Enrolled; end
     if groupCol~=""
         groupNames=unique(string(G.(groupCol)),'stable');
-        if ~allGroupsSelected, groupNames=selectedGroups; end
         for g=1:numel(groupNames)
             in=string(G.(groupCol))==groupNames(g);
             totalStudents=sum(in);
@@ -1546,23 +1683,20 @@ function name=firstName(vars,candidates)
     end
 end
 
-function tf=reportHasChineseNames(T)
+function tf=reportHasUntranslatedChineseNames(T)
     vars=string(T.Properties.VariableNames);
     nameCol=firstName(vars,["Student Name","StudentName","Learner Name"]);
     tf=false;
     if nameCol=="", return; end
     names=string(T.(nameCol));
     for k=1:numel(names)
-        [~,~,~,~,hasHan]=chineseToPinyin(names(k));
-        if hasHan
+        [displayName,~,~,wasConverted,hasHan]=chineseToPinyin(names(k));
+        [~,~,~,~,remainingHan]=chineseToPinyin(displayName);
+        if hasHan && (~wasConverted || remainingHan)
             tf=true;
             return
         end
     end
-end
-
-function tf=pinyinLibraryAvailable()
-    [~,~,~,tf]=chineseToPinyin("张三");
 end
 
 function key=normalizeKey(value)
@@ -1579,7 +1713,5 @@ function t=parseTimes(x)
     end
     t.TimeZone='';
 end
-
-
 
 
