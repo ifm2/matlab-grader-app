@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 18650)
-Total output lines: 1585
-
 function app = GraderReviewApp()
 % GraderReviewApp Local review tool for MATLAB Grader exports.
 %   GraderReviewApp launches a browser-style MATLAB UI for filtering
@@ -748,7 +745,58 @@ function app = GraderReviewApp()
         end
         selectedAssignment="";
         if ismember('Assignment',current.Properties.VariableNames), selectedAssignment=string(current.Assignment(row)); end
-        if selectedAssignment=="" && ~isempty(summaryRow) && ismember('Assignment',currentSummary.P…650 tokens truncated…ed solution row(s) for this problem in the current import.',attemptCount));
+        if selectedAssignment=="" && ~isempty(summaryRow) && ismember('Assignment',currentSummary.Properties.VariableNames)
+            selectedAssignment=string(currentSummary.Assignment(summaryRow));
+        end
+        studentInfoLabel.Text=studentSummaryText(report,selectedStudent,selectedAssignment);
+        if col<=width(current) && startsWith(string(current.Properties.VariableNames{col}),'Q_')
+            problemTitle=problemFromColumn(report,selectedAssignment,string(current.Properties.VariableNames{col}));
+            showSelectedSolution(report,selectedStudent,selectedAssignment,problemTitle);
+        else
+            selectedLabel.Text=chineseToPinyin(selectedStudent);
+            solutionHeading.Text='Select a problem score to preview its submitted code.';
+            solutionText.Value={'No solution selected.'};
+            submissionPositionLabel.Text='';
+            previousSubmissionButton.Visible='off';
+            previousSubmissionButton.Enable='off';
+            nextSubmissionButton.Visible='off';
+            nextSubmissionButton.Enable='off';
+            solutionFrame.BorderColor=[0.72 0.76 0.80];
+            selectedProblemUrl="";
+            openButton.Enable='off';
+            printCodeButton.Enable='off';
+            generateReportButton.Enable='off';
+        end
+    end
+
+    function showSelectedSolution(T,student,assignment,problemTitle)
+        [attemptRows,attemptCount]=findSelectedAttempts(T,student,assignment,problemTitle);
+        selectedLabel.Text=chineseToPinyin(student)+" — "+problemTitle;
+        if isempty(attemptRows)
+            solutionHeading.Text='No submitted solution found for this problem.';
+            solutionText.Value={''};
+            submissionPositionLabel.Text='';
+            previousSubmissionButton.Visible='off';
+            previousSubmissionButton.Enable='off';
+            nextSubmissionButton.Visible='off';
+            nextSubmissionButton.Enable='off';
+            solutionFrame.BorderColor=[0.72 0.76 0.80];
+            selectedProblemUrl="";
+            openButton.Enable='off';
+            printCodeButton.Enable='off';
+            generateReportButton.Enable='off';
+            return
+        end
+        selectedAttemptRows=attemptRows;
+        selectedAttemptCount=attemptCount;
+        selectedAttemptIndex=attemptCount;
+        selectedProblemTitle=problemTitle;
+        selectedAssignment=assignment;
+        previousSubmissionButton.Visible='on';
+        nextSubmissionButton.Visible='on';
+        updateSelectedAttempt();
+        studentInfoLabel.Text=studentSummaryText(T,student,assignment)+ ...
+            string(sprintf('  |  %d submitted solution row(s) for this problem in the current import.',attemptCount));
     end
 
     function stepSubmission(direction)
